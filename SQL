@@ -1,0 +1,325 @@
+-- data cleaning
+-- cek missing value iq
+select
+  g.name grade,
+  COUNTIF(pp.iq IS NULL) AS missing_iq, COUNT(*) AS total, 
+  ROUND(COUNTIF(pp.iq IS NULL)/COUNT(*)*100,2) AS missing_pct  
+from rakamin-475411.talent.employess e
+join rakamin-475411.talent.grades g
+on g.grade_id = e.grade_id
+join rakamin-475411.talent.profiles_psych pp
+on pp.employee_id = e.employee_id
+GROUP BY name
+ORDER BY missing_pct DESC;
+
+-- mengisi missing value di table papi_score
+CREATE OR REPLACE TABLE rakamin-475411.talent.papi_score_clean AS
+SELECT 
+  employee_id,
+  scale_code,
+  COALESCE(score, 0) AS score
+FROM rakamin-475411.talent.papi_score;
+
+-- mengisi missing value di table profiles_psych
+CREATE OR REPLACE TABLE rakamin-475411.talent.profiles_psych_clean AS
+SELECT
+  e.employee_id,
+  g.name,
+  round (COALESCE(CAST(pp.iq AS FLOAT64), AVG(pp.iq) OVER(PARTITION BY g.name)),0) AS iq,
+  round (COALESCE(CAST(pp.gtq AS FLOAT64), AVG(pp.gtq) OVER()),0) AS gtq,
+  COALESCE(mbti, 'Unknown') AS mbti,
+  pp.pauli,
+  pp.tiki,
+  pp.faxtor,
+  pp.disc_word
+FROM rakamin-475411.talent.employess e
+join rakamin-475411.talent.grades g
+on g.grade_id = e.grade_id
+join rakamin-475411.talent.profiles_psych pp
+on pp.employee_id = e.employee_id
+
+-- mengisi missing value di table strength
+CREATE OR REPLACE TABLE rakamin-475411.talent.strength_clean AS
+SELECT 
+  employee_id,
+  rank,
+  COALESCE(theme, 'unknown_strength') AS theme
+FROM rakamin-475411.talent.strength;
+
+-- eda
+select
+  e.employee_id,
+  cp.pillar_label,
+  ps.scale_code,
+  pp.pauli,
+  pp.iq,
+  pp.gtq,
+  pp.tiki,
+  s.theme,
+  g.name grade,
+  c.name companies,
+  a.name area,
+  p.name position,
+  de.name department,
+  di.name division,
+  dir.name directorate,
+  ed.name education,
+  m.name major,
+  e.years_of_service_months,
+  py.rating
+from rakamin-475411.talent.employess e
+left join rakamin-475411.talent.competencies_yearly cy
+on cy.employee_id = e.employee_id
+left join rakamin-475411.talent.competency_pillar_clean cp
+on cp.pillar_code = cy.pillar_code
+left join rakamin-475411.talent.papi_score_clean ps
+on ps.employee_id = e.employee_id
+left join rakamin-475411.talent.profiles_psych_clean pp
+on pp.employee_id = e.employee_id
+left join rakamin-475411.talent.strength_clean s
+on s.employee_id = e.employee_id
+left join rakamin-475411.talent.grades g
+on g.grade_id = e.grade_id
+left join rakamin-475411.talent.companies c
+on c.company_id = e.company_id
+left join rakamin-475411.talent.areas a
+on a.area_id = e.area_id
+left join rakamin-475411.talent.positions p
+on p.position_id = e.position_id
+left join rakamin-475411.talent.departments de
+on de.department_id = e.department_id
+left join rakamin-475411.talent.divisions di
+on di.division_id = e.division_id
+left join rakamin-475411.talent.directorates dir
+on dir.directorate_id = e.directorate_id
+left join rakamin-475411.talent.education ed
+on ed.education_id = e.education_id
+left join rakamin-475411.talent.majors m
+on m.major_id = e.major_id
+left join rakamin-475411.talent.performance_yearly py
+on py.employee_id = e.employee_id
+
+-- mencari TV (talent variable)
+CREATE OR REPLACE TABLE rakamin-475411.talent.profiles_tv AS
+(
+  SELECT employee_id, 'pauli' AS tv_name, CAST(pauli AS STRING) AS tv_score FROM rakamin-475411.talent.profiles_psych_clean
+  UNION ALL
+  SELECT employee_id, 'iq', CAST(iq AS STRING) FROM rakamin-475411.talent.profiles_psych_clean
+  UNION ALL
+  SELECT employee_id, 'gtq', CAST(gtq AS STRING) FROM rakamin-475411.talent.profiles_psych_clean
+  UNION ALL
+  SELECT employee_id, 'tiki', CAST(tiki AS STRING) FROM rakamin-475411.talent.profiles_psych_clean
+  UNION ALL
+  SELECT employee_id, LOWER(scale_code) AS tv_name, CAST(score AS STRING) AS tv_score
+  FROM rakamin-475411.talent.papi_score_clean
+  UNION ALL
+  SELECT employee_id, LOWER(theme) AS tv_name, CAST(rank AS STRING) AS tv_score
+  FROM rakamin-475411.talent.strength_clean
+);
+
+-- membuat tabel TGV
+CREATE OR REPLACE TABLE `rakamin-475411.talent.tgv_mapping` AS
+-- Adaptability & Stress Tolerance
+SELECT 'papi_t' AS tv_name, 'Adaptability & Stress Tolerance' AS tgv_name UNION ALL
+SELECT 'papi_e', 'Adaptability & Stress Tolerance' UNION ALL
+SELECT 'adaptability', 'Adaptability & Stress Tolerance' UNION ALL
+-- Cognitive Complexity & Problem-Solving
+SELECT 'gtq', 'Cognitive Complexity & Problem-Solving' UNION ALL
+SELECT 'tiki', 'Cognitive Complexity & Problem-Solving' UNION ALL
+SELECT 'iq', 'Cognitive Complexity & Problem-Solving' UNION ALL
+SELECT 'papi_i', 'Cognitive Complexity & Problem-Solving' UNION ALL
+SELECT 'connectedness', 'Cognitive Complexity & Problem-Solving' UNION ALL
+SELECT 'analytical', 'Cognitive Complexity & Problem-Solving' UNION ALL
+SELECT 'strategic', 'Cognitive Complexity & Problem-Solving' UNION ALL
+-- Conscientiousness & Reliability
+SELECT 'papi_c', 'Conscientiousness & Reliability' UNION ALL
+SELECT 'papi_d', 'Conscientiousness & Reliability' UNION ALL
+SELECT 'deliberative', 'Conscientiousness & Reliability' UNION ALL
+SELECT 'discipline', 'Conscientiousness & Reliability' UNION ALL
+-- Creativity & Innovation Orientation
+SELECT 'papi_z', 'Creativity & Innovation Orientation' UNION ALL
+SELECT 'futuristic', 'Creativity & Innovation Orientation' UNION ALL
+SELECT 'ideation', 'Creativity & Innovation Orientation' UNION ALL
+-- Cultural & Values Urgency
+SELECT 'belief', 'Cultural & Values Urgency' UNION ALL
+-- Motivation & Drive
+SELECT 'initial performance', 'Motivation & Drive' UNION ALL
+SELECT 'papi_a', 'Motivation & Drive' UNION ALL
+SELECT 'achiever', 'Motivation & Drive' UNION ALL
+-- Leadership & Influence
+SELECT 'papi_l', 'Leadership & Influence' UNION ALL
+SELECT 'papi_p', 'Leadership & Influence' UNION ALL
+SELECT 'arranger', 'Leadership & Influence' UNION ALL
+SELECT 'command', 'Leadership & Influence' UNION ALL
+SELECT 'self-assurance', 'Leadership & Influence' UNION ALL
+SELECT 'developer', 'Leadership & Influence' UNION ALL
+-- Social Orientation & Collaboration
+SELECT 'papi_s', 'Social Orientation & Collaboration' UNION ALL
+SELECT 'communication', 'Social Orientation & Collaboration' UNION ALL
+SELECT 'woo', 'Social Orientation & Collaboration' UNION ALL
+SELECT 'relator', 'Social Orientation & Collaboration';
+
+-- membuat table baseline_score
+CREATE OR REPLACE TABLE `rakamin-475411.talent.tv_baseline` AS
+SELECT
+  tv_name,
+  ROUND(AVG(SAFE_CAST(tv_score AS FLOAT64)), 2) AS baseline_score,
+FROM `rakamin-475411.talent.profiles_tv`
+WHERE SAFE_CAST(tv_score AS FLOAT64) IS NOT NULL
+GROUP BY tv_name
+
+-- membuat tv match rate
+CREATE OR REPLACE TABLE `rakamin-475411.talent.tv_match_rate` AS
+SELECT
+  e.employee_id,
+  d.name AS directorate,
+  p.name AS role,
+  g.name AS grade,
+  tgv.tgv_name,
+  tv.tv_name,
+  b.baseline_score,
+  tv.tv_score AS user_score,
+  ROUND(
+    LEAST(
+      100,
+      GREATEST(
+        0,
+        100 * (1 - (ABS(SAFE_CAST(tv.tv_score AS FLOAT64) - SAFE_CAST(b.baseline_score AS FLOAT64)) / (SAFE_CAST(b.baseline_score AS FLOAT64) + 5)))
+      )
+    ), 2
+  ) AS tv_match_rate
+FROM `rakamin-475411.talent.employess` e
+LEFT JOIN `rakamin-475411.talent.directorates` d
+  ON d.directorate_id = e.directorate_id
+LEFT JOIN `rakamin-475411.talent.positions` p
+  ON p.position_id = e.position_id
+LEFT JOIN `rakamin-475411.talent.grades` g
+  ON g.grade_id = e.grade_id
+LEFT JOIN `rakamin-475411.talent.profiles_tv` tv
+  ON tv.employee_id = e.employee_id
+LEFT JOIN `rakamin-475411.talent.tgv_mapping` tgv
+  ON LOWER(tgv.tv_name) = LOWER(tv.tv_name)
+LEFT JOIN `rakamin-475411.talent.tv_baseline` b
+  ON LOWER(b.tv_name) = LOWER(tv.tv_name)
+WHERE b.baseline_score IS NOT NULL
+  AND tv.tv_score IS NOT NULL;
+
+-- membuat tgv match rate
+CREATE OR REPLACE TABLE `rakamin-475411.talent.tgv_match_rate` AS
+SELECT
+  employee_id,
+  directorate,
+  role,
+  grade,
+  tgv_name,
+  ROUND(AVG(tv_match_rate), 2) AS tgv_match_rate
+FROM `rakamin-475411.talent.tv_match_rate`
+WHERE tgv_name IS NOT NULL
+GROUP BY employee_id, directorate, role, grade, tgv_name
+ORDER BY employee_id, tgv_name;
+
+-- membuat tabel wieght
+SELECT
+  t.tgv_name,
+  ROUND(AVG(IF(p.rating = 5, t.tgv_match_rate, NULL)), 2) AS avg_top,
+  ROUND(AVG(IF(p.rating < 5, t.tgv_match_rate, NULL)), 2) AS avg_non_top,
+  ROUND(
+    SAFE_DIVIDE(
+      AVG(IF(p.rating = 5, t.tgv_match_rate, NULL)),
+      AVG(IF(p.rating < 5, t.tgv_match_rate, NULL))
+    ), 2
+  ) AS relative_strength
+FROM `rakamin-475411.talent.tgv_match_rate` t
+LEFT JOIN `rakamin-475411.talent.performance_yearly` p
+  ON t.employee_id = p.employee_id
+GROUP BY t.tgv_name
+ORDER BY relative_strength DESC;
+
+WITH relative AS (
+  SELECT
+    tgv_name,
+    SAFE_DIVIDE(
+      AVG(IF(p.rating = 5, t.tgv_match_rate, NULL)),
+      AVG(IF(p.rating < 5, t.tgv_match_rate, NULL))
+    ) AS relative_strength
+  FROM `rakamin-475411.talent.tgv_match_rate` t
+  LEFT JOIN `rakamin-475411.talent.performance_yearly` p
+    ON t.employee_id = p.employee_id
+  GROUP BY tgv_name
+)
+SELECT
+  tgv_name,
+  ROUND(relative_strength / SUM(relative_strength) OVER(), 3) AS weight
+FROM relative
+ORDER BY weight DESC;
+
+CREATE OR REPLACE TABLE `rakamin-475411.talent.tgv_weight` AS
+SELECT 'Motivation & Drive' AS tgv_name, 0.125 AS weight UNION ALL
+SELECT 'Cognitive Complexity & Problem-Solving', 0.123 UNION ALL
+SELECT 'Adaptability & Stress Tolerance', 0.124 UNION ALL
+SELECT 'Conscientiousness & Reliability', 0.126 UNION ALL
+SELECT 'Leadership & Influence', 0.124 UNION ALL
+SELECT 'Social Orientation & Collaboration', 0.126;
+
+-- membuat final match rate
+CREATE OR REPLACE TABLE `rakamin-475411.talent.final_match_rate` AS
+SELECT
+  t.employee_id,
+  t.directorate,
+  t.role,
+  t.grade,
+  ROUND(SUM(t.tgv_match_rate * w.weight) / SUM(w.weight), 2) AS final_match_rate
+FROM `rakamin-475411.talent.tgv_match_rate` t
+LEFT JOIN `rakamin-475411.talent.tgv_weight` w
+  ON LOWER(t.tgv_name) = LOWER(w.tgv_name)
+GROUP BY t.employee_id, t.directorate, t.role, t.grade
+ORDER BY final_match_rate DESC;
+
+-- final output
+SELECT
+  tvm.employee_id,
+  tvm.directorate,
+  tvm.role,
+  tvm.grade,
+  tvm.tgv_name,
+  tvm.tv_name,
+  tvm.baseline_score,
+  tvm.user_score,
+  tvm.tv_match_rate,
+  tgvm.tgv_match_rate,
+  f.final_match_rate
+FROM `rakamin-475411.talent.tv_match_rate` tvm
+LEFT JOIN `rakamin-475411.talent.tgv_match_rate` tgvm
+  ON tvm.employee_id = tgvm.employee_id
+  AND LOWER(tvm.tgv_name) = LOWER(tgvm.tgv_name)
+left join rakamin-475411.talent.final_match_rate f
+on f.employee_id = tvm.employee_id
+order by tvm.employee_id
+
+SELECT
+  tvm.employee_id,
+  e.fullname,
+  tvm.directorate,
+  tvm.role,
+  tvm.grade,
+  tvm.tgv_name,
+  tvm.tv_name,
+  CAST(tvm.baseline_score AS FLOAT64) AS baseline_score,
+  CAST(tvm.user_score AS FLOAT64) AS user_score,
+  CAST(tvm.tv_match_rate AS FLOAT64) AS tv_match_rate,
+  CAST(tgvm.tgv_match_rate AS FLOAT64) AS tgv_match_rate,
+  CAST(f.final_match_rate AS FLOAT64) AS final_match_rate
+FROM `rakamin-475411.talent.tv_match_rate` tvm
+LEFT JOIN `rakamin-475411.talent.tgv_match_rate` tgvm
+  ON tvm.employee_id = tgvm.employee_id
+  AND LOWER(tvm.tgv_name) = LOWER(tgvm.tgv_name)
+LEFT JOIN `rakamin-475411.talent.final_match_rate` f
+  ON f.employee_id = tvm.employee_id
+LEFT JOIN `rakamin-475411.talent.employess` e
+  ON e.employee_id = tvm.employee_id
+ORDER BY tvm.employee_id;
+
+
+
+
+
